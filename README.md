@@ -2,20 +2,20 @@
 
 > 🚧 **Currently in active development**
 
-Miru is a Discord bot that brings anime, manga, and character information directly to your Discord server or DMs. Powered by the [Jikan API](https://jikan.moe/) (unofficial MyAnimeList API), Miru provides rich, detailed information with an intuitive dropdown interface.
+Miru is a Discord bot for anime and manga that works in servers and DMs (it can be installed to a server or to your account). It pulls data from [AniList](https://anilist.co/), falls back to [Jikan](https://jikan.moe/) (MyAnimeList) when AniList is down, and identifies screenshots with [trace.moe](https://trace.moe). Link an AniList account and it can also manage your lists, DM you when new episodes air, compare taste between friends, and post a server activity feed.
 
 ## Features
 
 - 🎬 **Anime Search** - Search and browse anime with detailed information
-  - Studios with clickable links
-  - Genres, air dates, rankings
-  - 600-character synopses
-  - English/Japanese titles
+  - Studio, score, rank, format, episode count and runtime
+  - Season, air dates, genres and source material
+  - Next-episode countdown for airing shows
+  - English and romaji titles, AniList banner art
   - Interactive dropdown to browse up to 25 results
 
 - 📚 **Manga Search** - Comprehensive manga information
-  - Authors with clickable links
-  - Genres, publication dates, rankings
+  - Authors, score, rank and genres
+  - Publication dates
   - Chapter and volume counts
   - Interactive result browsing
 
@@ -26,6 +26,7 @@ Miru is a Discord bot that brings anime, manga, and character information direct
   - Browse multiple character results
 
 - 🔍 **Scene search** - Right-click any image → *Apps → What anime is this?* (or `/trace`) finds the anime, episode and timestamp via [trace.moe](https://trace.moe)
+- 🔁 **Fallback** - If AniList is unavailable, searches transparently fall back to Jikan; each result's footer shows where it came from
 - 📅 **Seasonal chart** - `/season` browses any season by popularity, score or trend, with your list status tagged on each show
 
 ### With a linked AniList account
@@ -41,6 +42,16 @@ Miru is a Discord bot that brings anime, manga, and character information direct
 
 ## Installation
 
+### Prerequisites
+
+- Node.js 18 or newer
+- A Discord application and bot token ([Developer Portal](https://discord.com/developers/applications))
+- A MongoDB database (e.g. a free Atlas cluster)
+- An AniList API client ([anilist.co/settings/developer](https://anilist.co/settings/developer)) with its Redirect URL set to exactly `https://anilist.co/api/v2/oauth/pin`
+- Optional: a [trace.moe](https://trace.moe) API key (without one, scene search shares a quota of 100 searches/month per server IP)
+
+### Setup
+
 1. **Install dependencies:**
    ```bash
    npm install
@@ -49,13 +60,24 @@ Miru is a Discord bot that brings anime, manga, and character information direct
 2. **Configure environment:**
    ```bash
    cp .env.example .env
-   # Edit .env and add your Discord bot token and application ID
    ```
+   | Variable | Required | Purpose |
+   | --- | --- | --- |
+   | `DISCORD_TOKEN` | ✅ | Bot token |
+   | `DISCORD_CLIENT_ID` | ✅ | Application ID |
+   | `MONGODB_URI` | ✅ | MongoDB connection string |
+   | `MONGODB_DB` | | Database name (defaults to `miru`) |
+   | `ANILIST_CLIENT_ID` / `ANILIST_CLIENT_SECRET` | ✅ | AniList OAuth client for `/link` |
+   | `ANILIST_REDIRECT_URI` | | Only if your AniList client doesn't use the pin page |
+   | `TOKEN_ENCRYPTION_KEY` | ✅ | Encrypts stored AniList tokens. Generate with `openssl rand -hex 32`. Changing it invalidates every existing link |
+   | `TRACE_MOE_API_KEY` | | Higher trace.moe quota |
+   | `GUILD_ID` | | Register commands to one server only (instant updates while developing) |
 
 3. **Register commands:**
    ```bash
    npm run deploy
    ```
+   With `GUILD_ID` set, commands are registered to that server only; otherwise they're registered globally.
 
 4. **Start the bot:**
    ```bash
@@ -115,15 +137,17 @@ Replace `YOUR_CLIENT_ID` with your application ID.
 
 - [Discord.js](https://discord.js.org/) v14
 - [AniList GraphQL API](https://docs.anilist.co/) (primary) and [Jikan API](https://docs.api.jikan.moe/) v4 (fallback)
+- [trace.moe API](https://soruly.github.io/trace.moe-api/) for scene search
 - MongoDB
 - [@napi-rs/canvas](https://github.com/Brooooooklyn/canvas) for Wrapped cards
 - Node.js
 
 ## License
 
-This project is licensed under the Apache-2.0 License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 
-- MyAnimeList for the anime/manga data
-- [Jikan](https://jikan.moe/) for the awesome API
+- [AniList](https://anilist.co/) for its GraphQL API
+- [Jikan](https://jikan.moe/) and MyAnimeList for the fallback data
+- [trace.moe](https://trace.moe) for scene search
