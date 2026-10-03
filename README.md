@@ -84,6 +84,27 @@ Miru is a Discord bot for anime and manga that works in servers and DMs (it can 
    npm start
    ```
 
+### Deploying with Dokku
+
+The `Procfile` defines a `worker` process (the bot; it serves no HTTP) and a `release` step that re-registers slash commands on every deploy.
+
+On the server:
+```bash
+dokku apps:create miru
+dokku config:set --no-restart miru DISCORD_TOKEN=... DISCORD_CLIENT_ID=... MONGODB_URI=... \
+  ANILIST_CLIENT_ID=... ANILIST_CLIENT_SECRET=... TOKEN_ENCRYPTION_KEY=...
+dokku checks:disable miru          # stop the old bot before starting the new one
+dokku ps:scale --skip-deploy miru web=0 worker=1
+```
+
+Locally:
+```bash
+git remote add dokku dokku@YOUR_SERVER:miru
+git push dokku master
+```
+
+Logs: `dokku logs miru -t`. Leave `GUILD_ID` unset in production so commands register globally.
+
 ## Commands
 
 ### Search
