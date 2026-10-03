@@ -1,96 +1,96 @@
-const { EmbedBuilder, SlashCommandBuilder, StringSelectMenuBuilder, ActionRowBuilder, ComponentType } = require("discord.js");
+const { EmbedBuilder, SlashCommandBuilder, StringSelectMenuBuilder, ActionRowBuilder, MessageFlags } = require("discord.js");
 const {
   ApplicationIntegrationType,
   InteractionContextType
 } = require("discord-api-types/v10");
-const { searchAnime, truncate } = require("../lib/jikan");
+const { searchAnime, truncate, describeSearchError, sourceLabel } = require("../lib/media-search");
+const { createListControls } = require("../lib/list-controls");
+const {
+  ACCENT,
+  accentFor,
+  joinDot,
+  joinLines,
+  joinParagraphs,
+  clamp,
+  summarize,
+  credit,
+  chips,
+  countLabel,
+  timestamp,
+  dateRange,
+  startYear,
+  seasonLabel,
+  shortDuration,
+  scoreLabel,
+  rankLabel,
+  fields,
+  paginationFooter
+} = require("../lib/embeds");
 
 function createAnimeEmbed(result, currentIndex, totalResults) {
-  const title = result.title_english && result.title_english !== result.title
-    ? `${result.title_english} (${result.title})`
-    : result.title || "Unknown";
+  const englishTitle = result.title_english && result.title_english !== result.title
+    ? result.title_english
+    : null;
 
-  const studios = result.studios || [];
-  const studioText = studios.length > 0 
-    ? studios.map(s => s.name).join(", ")
-    : "Unknown";
-  const studioUrl = studios.length > 0 ? studios[0].url : null;
+  // The headline gets one title; the other is set as subtext above the synopsis
+  // so the two never fight for the same line.
+  const heading = englishTitle || result.title || "Unknown";
+  const alternateTitle = englishTitle ? result.title : null;
 
-  const genres = result.genres || [];
-  const genreText = genres.length > 0
-    ? genres.map(g => g.name).join(", ")
-    : "None";
+  // Everything numeric lives on a single scannable line instead of taking up
+  // four labelled cells that each hold one word.
+  const stats = joinDot([
+    scoreLabel(result.score, { bold: true }),
+    rankLabel(result.rank),
+    result.type,
+    countLabel(result.episodes, "ep"),
+    shortDuration(result.duration)
+  ]);
 
-  const aired = result.aired || {};
-  let airedText = "Unknown";
-  if (aired.from) {
-    const startTimestamp = Math.floor(new Date(aired.from).getTime() / 1000);
-    if (aired.to) {
-      const endTimestamp = Math.floor(new Date(aired.to).getTime() / 1000);
-      airedText = `<t:${startTimestamp}:d> - <t:${endTimestamp}:d>`;
-    } else {
-      airedText = `<t:${startTimestamp}:d> - Ongoing`;
-    }
-  }
+  const next = result._nextEpisode;
 
   const embed = new EmbedBuilder()
-    .setColor(0x3498db)
-    .setTitle(truncate(title, 256))
+    .setColor(accentFor(result.status, ACCENT.anime))
+    .setAuthor(credit(result.studios))
+    .setTitle(clamp(heading, 256))
     .setURL(result.url || null)
-    .setDescription(truncate(result.synopsis, 600) || "No synopsis available.")
-    .setThumbnail(result.images?.jpg?.image_url || null);
+    .setDescription(joinParagraphs([
+      joinLines([alternateTitle ? `-# ${clamp(alternateTitle, 200)}` : null, stats || null]),
+      summarize(result.synopsis) || "*No synopsis available.*"
+    ]))
+    .setThumbnail(result.images?.jpg?.image_url || null)
+    .addFields(fields([
+      { name: "Status", value: result.status, inline: true },
+      {
+        name: "Aired",
+        value: joinLines([
+          seasonLabel(result.season, result.year),
+          dateRange(result.aired?.from, result.aired?.to, { ongoingLabel: "airing" })
+        ]),
+        inline: true
+      },
+      // A countdown only matters while the show is running; once it has
+      // finished, where it was adapted from is the more interesting line.
+      next
+        ? { name: "Next Episode", value: joinLines([`Episode ${next.episode}`, timestamp(next.airingAt, "R")]), inline: true }
+        : { name: "Source", value: result.source, inline: true },
+      { name: "Genres", value: chips(result.genres?.map((genre) => genre.name)), inline: false }
+    ]))
+    .setFooter(paginationFooter([
+      sourceLabel(result),
+      `${currentIndex + 1} of ${totalResults}`
+    ]));
 
-  if (studioUrl) {
-    embed.setAuthor({ name: studioText, url: studioUrl });
-  } else {
-    embed.setAuthor({ name: studioText });
-  }
-
-  embed.addFields(
-    {
-      name: "Type",
-      value: result.type || "Unknown",
-      inline: true
-    },
-    {
-      name: "Episodes",
-      value: result.episodes ? String(result.episodes) : "Unknown",
-      inline: true
-    },
-    {
-      name: "Score",
-      value: result.score ? String(result.score) : "N/A",
-      inline: true
-    },
-    {
-      name: "Status",
-      value: result.status || "Unknown",
-      inline: true
-    },
-    {
-      name: "Rank",
-      value: result.rank ? `#${result.rank}` : "N/A",
-      inline: true
-    },
-    {
-      name: "Aired",
-      value: airedText,
-      inline: true
-    },
-    {
-      name: "Genres",
-      value: genreText,
-      inline: false
-    }
-  );
-
-  const footerText = `Found ${totalResults} result(s) • Showing result ${currentIndex + 1}/${totalResults} • Source: Jikan API`;
-  embed.setFooter({ text: footerText });
+  // AniList banners are wide crops made for exactly this kind of header strip;
+  // entries without one simply keep the cover thumbnail.
+  if (result._banner) embed.setImage(result._banner);
 
   return embed;
 }
 
 module.exports = {
+  // Shared with /season, whose detail view is the same card.
+  createAnimeEmbed,
   data: new SlashCommandBuilder()
     .setName("anime")
     .setDescription("Search for an anime title")
@@ -115,7 +115,15 @@ module.exports = {
 
     await interaction.deferReply();
 
-    const results = await searchAnime(query);
+    let results = null;
+    try {
+      results = await searchAnime(query);
+    } catch (error) {
+      console.error("Anime search failed:", error);
+      await interaction.editReply(describeSearchError(error));
+      return;
+    }
+
     if (!results || results.length === 0) {
       await interaction.editReply("No anime results found.");
       return;
@@ -127,42 +135,72 @@ module.exports = {
       .setPlaceholder("Select an anime to view details")
       .addOptions(
         results.slice(0, 25).map((result, index) => ({
-          label: truncate(result.title || "Unknown", 100),
-          description: truncate(result.type || "Unknown", 100),
+          label: truncate(result.title_english || result.title || "Unknown", 100),
+          // The picker is where results get compared, so each row carries the
+          // few numbers that decide which one to open.
+          description: truncate(joinDot([
+            result.type,
+            startYear(result.year, result.aired?.from),
+            scoreLabel(result.score),
+            result.episodes ? `${result.episodes} ep` : null
+          ]), 100) || undefined,
           value: String(index)
         }))
       );
 
     const row = new ActionRowBuilder().addComponents(selectMenu);
 
+    // List buttons are offered only to a viewer with a linked account, and the
+    // button shown depends on whether the displayed result is already on their
+    // list. Searching is a public feature that must not fail because of it.
+    const controls = await createListControls({
+      discordId: interaction.user.id,
+      results,
+      type: "ANIME"
+    }).catch(() => null);
+
+    const componentsFor = (index) => {
+      const listRow = controls?.rowFor(index);
+      return listRow ? [row, listRow] : [row];
+    };
+
+    let currentIndex = 0;
     const embed = createAnimeEmbed(results[0], 0, results.length);
     const response = await interaction.editReply({
       embeds: [embed],
-      components: [row]
+      components: componentsFor(currentIndex)
     });
 
-    // Create collector for dropdown interactions
+    // Collects both the result dropdown and the list buttons.
     const collector = response.createMessageComponentCollector({
-      componentType: ComponentType.StringSelect,
       time: 300_000 // 5 minutes
     });
 
     collector.on("collect", async (i) => {
       if (i.user.id !== interaction.user.id) {
         await i.reply({
-          content: "This dropdown is not for you!",
-          ephemeral: true
+          content: "These controls are not for you!",
+          flags: MessageFlags.Ephemeral
         });
         return;
       }
 
-      const selectedIndex = parseInt(i.values[0]);
-      const selectedResult = results[selectedIndex];
-      const selectedEmbed = createAnimeEmbed(selectedResult, selectedIndex, results.length);
+      if (controls?.owns(i.customId)) {
+        // The buttons reflect list state (Add vs Remove, progress, score), so
+        // the message they sit on has to be refreshed once the list changed.
+        const changed = await controls.handle(i, currentIndex);
+        if (changed) {
+          await interaction.editReply({ components: componentsFor(currentIndex) }).catch(() => {});
+        }
+        return;
+      }
+
+      currentIndex = parseInt(i.values[0]);
+      const selectedEmbed = createAnimeEmbed(results[currentIndex], currentIndex, results.length);
 
       await i.update({
         embeds: [selectedEmbed],
-        components: [row]
+        components: componentsFor(currentIndex)
       });
     });
 

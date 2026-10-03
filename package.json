@@ -16,9 +16,12 @@
     "deploy": "node src/deploy-commands.js"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.3.0",
+    "@napi-rs/canvas": "^1.0.10",
     "discord-api-types": "^0.37.106",
     "discord.js": "^14.25.1",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "mongodb": "^7.5.0"
   },
   "engines": {
     "node": ">=18"

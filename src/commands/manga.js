@@ -1,96 +1,71 @@
-const { EmbedBuilder, SlashCommandBuilder, StringSelectMenuBuilder, ActionRowBuilder, ComponentType } = require("discord.js");
+const { EmbedBuilder, SlashCommandBuilder, StringSelectMenuBuilder, ActionRowBuilder, MessageFlags } = require("discord.js");
 const {
   ApplicationIntegrationType,
   InteractionContextType
 } = require("discord-api-types/v10");
-const { searchManga, truncate } = require("../lib/jikan");
+const { searchManga, truncate, describeSearchError, sourceLabel } = require("../lib/media-search");
+const { createListControls } = require("../lib/list-controls");
+const {
+  ACCENT,
+  accentFor,
+  joinDot,
+  joinLines,
+  joinParagraphs,
+  clamp,
+  summarize,
+  credit,
+  chips,
+  countLabel,
+  dateRange,
+  startYear,
+  scoreLabel,
+  rankLabel,
+  fields,
+  paginationFooter
+} = require("../lib/embeds");
 
 function createMangaEmbed(result, currentIndex, totalResults) {
-  const title = result.title_english && result.title_english !== result.title
-    ? `${result.title_english} (${result.title})`
-    : result.title || "Unknown";
+  const englishTitle = result.title_english && result.title_english !== result.title
+    ? result.title_english
+    : null;
 
-  const authors = result.authors || [];
-  const authorText = authors.length > 0 
-    ? authors.map(a => a.name).join("; ")
-    : "Unknown";
-  const authorUrl = authors.length > 0 ? authors[0].url : null;
+  // As in the anime embed: one title in the headline, the other as subtext.
+  const heading = englishTitle || result.title || "Unknown";
+  const alternateTitle = englishTitle ? result.title : null;
 
-  const genres = result.genres || [];
-  const genreText = genres.length > 0
-    ? genres.map(g => g.name).join(", ")
-    : "None";
-
-  const published = result.published || {};
-  let publishedText = "Unknown";
-  if (published.from) {
-    const startTimestamp = Math.floor(new Date(published.from).getTime() / 1000);
-    if (published.to) {
-      const endTimestamp = Math.floor(new Date(published.to).getTime() / 1000);
-      publishedText = `<t:${startTimestamp}:d> - <t:${endTimestamp}:d>`;
-    } else {
-      publishedText = `<t:${startTimestamp}:d> - Ongoing`;
-    }
-  }
+  const stats = joinDot([
+    scoreLabel(result.score, { bold: true }),
+    rankLabel(result.rank),
+    result.type,
+    countLabel(result.chapters, "chapter"),
+    countLabel(result.volumes, "volume")
+  ]);
 
   const embed = new EmbedBuilder()
-    .setColor(0xe67e22)
-    .setTitle(truncate(title, 256))
+    .setColor(accentFor(result.status, ACCENT.manga))
+    .setAuthor(credit(result.authors))
+    .setTitle(clamp(heading, 256))
     .setURL(result.url || null)
-    .setDescription(truncate(result.synopsis, 600) || "No synopsis available.")
-    .setThumbnail(result.images?.jpg?.image_url || null);
+    .setDescription(joinParagraphs([
+      joinLines([alternateTitle ? `-# ${clamp(alternateTitle, 200)}` : null, stats || null]),
+      summarize(result.synopsis) || "*No synopsis available.*"
+    ]))
+    .setThumbnail(result.images?.jpg?.image_url || null)
+    .addFields(fields([
+      { name: "Status", value: result.status, inline: true },
+      {
+        name: "Published",
+        value: dateRange(result.published?.from, result.published?.to, { ongoingLabel: "ongoing" }),
+        inline: true
+      },
+      { name: "Genres", value: chips(result.genres?.map((genre) => genre.name)), inline: false }
+    ]))
+    .setFooter(paginationFooter([
+      sourceLabel(result),
+      `${currentIndex + 1} of ${totalResults}`
+    ]));
 
-  if (authorUrl) {
-    embed.setAuthor({ name: authorText, url: authorUrl });
-  } else {
-    embed.setAuthor({ name: authorText });
-  }
-
-  embed.addFields(
-    {
-      name: "Type",
-      value: result.type || "Unknown",
-      inline: true
-    },
-    {
-      name: "Chapters",
-      value: result.chapters ? String(result.chapters) : "Unknown",
-      inline: true
-    },
-    {
-      name: "Volumes",
-      value: result.volumes ? String(result.volumes) : "Unknown",
-      inline: true
-    },
-    {
-      name: "Score",
-      value: result.score ? String(result.score) : "N/A",
-      inline: true
-    },
-    {
-      name: "Status",
-      value: result.status || "Unknown",
-      inline: true
-    },
-    {
-      name: "Rank",
-      value: result.rank ? `#${result.rank}` : "N/A",
-      inline: true
-    },
-    {
-      name: "Published",
-      value: publishedText,
-      inline: false
-    },
-    {
-      name: "Genres",
-      value: genreText,
-      inline: false
-    }
-  );
-
-  const footerText = `Found ${totalResults} result(s) • Showing result ${currentIndex + 1}/${totalResults} • Source: Jikan API`;
-  embed.setFooter({ text: footerText });
+  if (result._banner) embed.setImage(result._banner);
 
   return embed;
 }
@@ -120,7 +95,15 @@ module.exports = {
 
     await interaction.deferReply();
 
-    const results = await searchManga(query);
+    let results = null;
+    try {
+      results = await searchManga(query);
+    } catch (error) {
+      console.error("Manga search failed:", error);
+      await interaction.editReply(describeSearchError(error));
+      return;
+    }
+
     if (!results || results.length === 0) {
       await interaction.editReply("No manga results found.");
       return;
@@ -132,42 +115,70 @@ module.exports = {
       .setPlaceholder("Select a manga to view details")
       .addOptions(
         results.slice(0, 25).map((result, index) => ({
-          label: truncate(result.title || "Unknown", 100),
-          description: truncate(result.type || "Unknown", 100),
+          label: truncate(result.title_english || result.title || "Unknown", 100),
+          description: truncate(joinDot([
+            result.type,
+            startYear(result.year, result.published?.from),
+            scoreLabel(result.score),
+            result.chapters ? `${result.chapters} ch` : null
+          ]), 100) || undefined,
           value: String(index)
         }))
       );
 
     const row = new ActionRowBuilder().addComponents(selectMenu);
 
+    // List buttons are offered only to a viewer with a linked account, and the
+    // button shown depends on whether the displayed result is already on their
+    // list. Searching is a public feature that must not fail because of it.
+    const controls = await createListControls({
+      discordId: interaction.user.id,
+      results,
+      type: "MANGA"
+    }).catch(() => null);
+
+    const componentsFor = (index) => {
+      const listRow = controls?.rowFor(index);
+      return listRow ? [row, listRow] : [row];
+    };
+
+    let currentIndex = 0;
     const embed = createMangaEmbed(results[0], 0, results.length);
     const response = await interaction.editReply({
       embeds: [embed],
-      components: [row]
+      components: componentsFor(currentIndex)
     });
 
-    // Create collector for dropdown interactions
+    // Collects both the result dropdown and the list buttons.
     const collector = response.createMessageComponentCollector({
-      componentType: ComponentType.StringSelect,
       time: 300_000 // 5 minutes
     });
 
     collector.on("collect", async (i) => {
       if (i.user.id !== interaction.user.id) {
         await i.reply({
-          content: "This dropdown is not for you!",
-          ephemeral: true
+          content: "These controls are not for you!",
+          flags: MessageFlags.Ephemeral
         });
         return;
       }
 
-      const selectedIndex = parseInt(i.values[0]);
-      const selectedResult = results[selectedIndex];
-      const selectedEmbed = createMangaEmbed(selectedResult, selectedIndex, results.length);
+      if (controls?.owns(i.customId)) {
+        // The buttons reflect list state (Add vs Remove, progress, score), so
+        // the message they sit on has to be refreshed once the list changed.
+        const changed = await controls.handle(i, currentIndex);
+        if (changed) {
+          await interaction.editReply({ components: componentsFor(currentIndex) }).catch(() => {});
+        }
+        return;
+      }
+
+      currentIndex = parseInt(i.values[0]);
+      const selectedEmbed = createMangaEmbed(results[currentIndex], currentIndex, results.length);
 
       await i.update({
         embeds: [selectedEmbed],
-        components: [row]
+        components: componentsFor(currentIndex)
       });
     });
 
