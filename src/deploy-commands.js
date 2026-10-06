@@ -3,6 +3,7 @@ require("dotenv").config();
 const fs = require("node:fs");
 const path = require("node:path");
 const { REST, Routes } = require("discord.js");
+const { loadPremium } = require("./lib/premium");
 
 const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.DISCORD_CLIENT_ID;
@@ -18,11 +19,11 @@ if (!clientId) {
 
 const commands = [];
 const commandsPath = path.join(__dirname, "commands");
-const commandFiles = fs.readdirSync(commandsPath).filter((file) => file.endsWith(".js"));
+const commandModules = fs.readdirSync(commandsPath)
+  .filter((file) => file.endsWith(".js"))
+  .map((file) => require(path.join(commandsPath, file)));
 
-for (const file of commandFiles) {
-  const filePath = path.join(commandsPath, file);
-  const command = require(filePath);
+for (const command of [...commandModules, ...loadPremium().commands]) {
   if (command?.data) {
     commands.push(command.data.toJSON());
   }

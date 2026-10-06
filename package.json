@@ -7,7 +7,7 @@
     "anime",
     "bot"
   ],
-  "license": "GPL-3.0",
+  "license": "AGPL-3.0-only",
   "author": "prinke.dev",
   "type": "commonjs",
   "main": "src/index.js",

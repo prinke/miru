@@ -7,6 +7,7 @@ const { Client, Collection, Events, GatewayIntentBits } = require("discord.js");
 const db = require("./lib/db");
 const users = require("./lib/users");
 const scheduler = require("./lib/scheduler");
+const { loadPremium } = require("./lib/premium");
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds]
@@ -18,12 +19,14 @@ client.commands = new Collection();
 // "<prefix>:<args>", and the prefix picks the module that handles them.
 client.componentHandlers = new Collection();
 
-const commandsPath = path.join(__dirname, "commands");
-const commandFiles = fs.readdirSync(commandsPath).filter((file) => file.endsWith(".js"));
+const premium = loadPremium();
 
-for (const file of commandFiles) {
-  const filePath = path.join(commandsPath, file);
-  const command = require(filePath);
+const commandsPath = path.join(__dirname, "commands");
+const commandModules = fs.readdirSync(commandsPath)
+  .filter((file) => file.endsWith(".js"))
+  .map((file) => require(path.join(commandsPath, file)));
+
+for (const command of [...commandModules, ...premium.commands]) {
   if (command?.data && command?.execute) {
     client.commands.set(command.data.name, command);
   }
@@ -33,9 +36,12 @@ for (const file of commandFiles) {
 }
 
 const jobsPath = path.join(__dirname, "jobs");
-const jobs = fs.readdirSync(jobsPath)
-  .filter((file) => file.endsWith(".js"))
-  .map((file) => require(path.join(jobsPath, file)));
+const jobs = [
+  ...fs.readdirSync(jobsPath)
+    .filter((file) => file.endsWith(".js"))
+    .map((file) => require(path.join(jobsPath, file))),
+  ...premium.jobs
+];
 
 for (const job of jobs) {
   scheduler.register(job.name, job.intervalMs, () => job.run(client));
@@ -143,6 +149,7 @@ async function main() {
   await db.connect();
   await users.ensureIndexes();
   for (const owner of [...client.commands.values(), ...jobs]) await owner.ensureIndexes?.();
+  await premium.setup?.(client);
   await client.login(process.env.DISCORD_TOKEN);
 }
 

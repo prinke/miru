@@ -1,2 +1,5 @@
 node_modules/
 .env
+
+# Private paid features; lives in its own repository (see src/lib/premium.js)
+premium/

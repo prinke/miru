@@ -40,7 +40,9 @@ Miru is a Discord bot for anime and manga that works in servers and DMs (it can 
 - ✨ **Recommendations** - Personal picks from your favourites, or "nobody here has seen these" for a whole server
 - 🎁 **Wrapped** - A shareable year-in-review card with server and global rankings
 
-## Installation
+## Self-hosting
+
+> Most people should just [invite the hosted bot](#installation-links). Self-hosting is for developers and is not officially supported. Self-hosted copies include every feature in this repository. Paid features planned for the hosted bot won't be included.
 
 ### Prerequisites
 
@@ -102,6 +104,8 @@ Locally:
 git remote add dokku dokku@YOUR_SERVER:miru
 git push dokku master
 ```
+
+(The official deployment uses `scripts/deploy.sh` instead, which also ships the private premium module. You don't need it for a self-hosted copy.)
 
 Logs: `dokku logs miru -t`. Leave `GUILD_ID` unset in production so commands register globally.
 
@@ -165,7 +169,13 @@ Replace `YOUR_CLIENT_ID` with your application ID.
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
+Miru is licensed under the GNU Affero General Public License v3.0 (AGPLv3). See the [LICENSE](LICENSE) file for details.
+
+In short: you can use, modify and run your own copy. If you run a modified version that other people use, including as a public Discord bot, you must make your modified source code available to those users under the same license.
+
+Paid features planned for the hosted Miru bot will not be part of this repository.
+
+**Name and branding:** the license covers the code, not the name. If you run a public fork, give it a different name and avatar so it isn't mistaken for the official Miru.
 
 ## Acknowledgments
 
